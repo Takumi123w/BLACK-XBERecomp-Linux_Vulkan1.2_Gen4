@@ -36,6 +36,10 @@ struct Options {
     uint32_t rumble_intensity = 100;  // percent of the game's vibration
     bool gyro_aiming = false;  // the controller's gyro turns the view, beside the right stick
     float gyro_sensitivity = 2.0f;  // degrees the view turns a degree the controller turns
+    bool infinite_ammo = false;  // cheat: the player's magazine and reserve never go down, so it never reloads
+    bool god_mode = false;  // cheat: no hit takes the player's health
+    bool one_hit_kill = false;  // cheat: any hit of the player's bullets kills
+    bool infinite_grenades = false;  // cheat: throwing a grenade keeps the count
     bool menu_animations = true;  // off: menu pages and the pause menu change without sliding in and out
     std::map<std::string, std::string> keys;  // action id to key names, absent is the default
 };

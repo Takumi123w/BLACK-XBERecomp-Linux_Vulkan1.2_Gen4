@@ -315,6 +315,30 @@ static bool g_idle_early;
 // weapon
 constexpr uint32_t kWeaponState = 0xD8;
 constexpr uint32_t kWeaponWait = 0xDC;
+constexpr uint32_t kWeaponAmmo = 0xF4;
+// ammo: a shot takes one from each (0x1EFBBB)
+constexpr uint32_t kAmmoTotal = 0x14;
+constexpr uint32_t kAmmoClip = 0x18;
+
+// the infinite ammo cheat: what the player's weapon had before its update, put back where it went down. The
+// magazine never empties, so it never reloads; a reload moves rounds from the reserve, which is put back too
+struct KeptAmmo {
+    uint32_t ammo = 0;
+    uint32_t total = 0;
+    uint16_t clip = 0;
+};
+
+static KeptAmmo KeepAmmo(uint32_t weapon) {
+    uint32_t ammo = R32(weapon + kWeaponAmmo);
+    if (!game::Opt().infinite_ammo || !ammo || R32(weapon + kWeaponOwner) != Player()) return {};
+    return {ammo, R32(ammo + kAmmoTotal), G<uint16_t>(ammo + kAmmoClip)};
+}
+
+static void RestoreAmmo(uint32_t weapon, const KeptAmmo& kept) {
+    if (!kept.ammo || R32(weapon + kWeaponAmmo) != kept.ammo) return;
+    if (R32(kept.ammo + kAmmoTotal) < kept.total) W32(kept.ammo + kAmmoTotal, kept.total);
+    if (G<uint16_t>(kept.ammo + kAmmoClip) < kept.clip) G<uint16_t>(kept.ammo + kAmmoClip) = kept.clip;
+}
 
 // the wait between a weapon's shots. The frame of a first shot is part of it: the fire clip runs that frame too
 // and holds its next shot where the wait ends
@@ -324,7 +348,9 @@ X86_FUNC(sub_001EEFD0) {
     float& wait = G<float>(weapon + kWeaponWait);
     float rest = wait;
     float dt = Dt();
+    KeptAmmo kept = KeepAmmo(weapon);
     __imp__sub_001EEFD0(ctx, base);
+    RestoreAmmo(weapon, kept);
     uint32_t me = R32(weapon + kWeaponOwner);
     if (me == Player()) {
         if (R32(weapon + kWeaponState) != 1 || wait != rest) g_idle_early = false;

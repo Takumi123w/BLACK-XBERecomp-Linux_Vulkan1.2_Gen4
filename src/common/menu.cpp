@@ -258,7 +258,7 @@ enum RowId { kDisplayMode, kResolution, kRenderResolution, kMaxFps, kVsync, kFps
              kAmbientOcclusion, kAudioOutput, kHdrOutput, kMonitor, kLanguage, kSmaa,
              kPauseOnFocusLoss, kFmvScale,
              kControllerHoldAim, kControllerSensitivity, kRumbleIntensity, kMenuAnimations,
-             kGyroAiming, kGyroSensitivity, kAimAssist };
+             kGyroAiming, kGyroSensitivity, kAimAssist, kInfiniteAmmo, kGodMode, kOneHitKill, kInfiniteGrenades };
 
 using rows::Kind;
 using rows::Row;
@@ -317,11 +317,23 @@ constexpr Row kControllerRows[] = {
     {Kind::Value, kGyroSensitivity, "GYRO SENSITIVITY"},
 };
 
+constexpr Row kCheatRows[] = {
+    {Kind::Heading, -1, "CHEATS"},
+    {Kind::Value, kInfiniteAmmo, "INFINITE AMMO"},
+    {Kind::Value, kGodMode, "GOD MODE"},
+    {Kind::Value, kOneHitKill, "ONE-HIT KILL"},
+    {Kind::Value, kInfiniteGrenades, "INFINITE GRENADES"},
+};
+
 // the setting an ON / OFF row flips, nullptr for any other row
 bool* ToggleFlag(Settings& s, int id) {
     game::Options& o = game::Opt();
     switch (id) {
         case kVsync: return &s.vsync;
+        case kInfiniteAmmo: return &o.infinite_ammo;
+        case kGodMode: return &o.god_mode;
+        case kOneHitKill: return &o.one_hit_kill;
+        case kInfiniteGrenades: return &o.infinite_grenades;
         case kFpsCounter: return &o.fps_counter;
         case kHdrOutput: return &o.hdr_output;
         case kReloadBlur: return &o.reload_blur;
@@ -566,10 +578,19 @@ std::string KeyText(std::string keys) {
     return keys;
 }
 
-const char* const kPages[] = {"RECOMP SETTINGS", "MOUSE AND KEYBOARD", "CONTROLLER"};
+const char* const kPages[] = {"RECOMP SETTINGS", "MOUSE AND KEYBOARD", "CONTROLLER", "CHEATS"};
 constexpr int kSettingsPage = 0;
 constexpr int kKeyboardPage = 1;
 constexpr int kControllerPage = 2;
+constexpr int kCheatsPage = 3;
+
+// the cheats, which only their own page's defaults turn off
+void CopyCheats(game::Options& to, const game::Options& from) {
+    to.infinite_ammo = from.infinite_ammo;
+    to.god_mode = from.god_mode;
+    to.one_hit_kill = from.one_hit_kill;
+    to.infinite_grenades = from.infinite_grenades;
+}
 
 // the MOUSE AND KEYBOARD page's values, its binds aside
 void CopyKeyboardValues(game::Options& to, const game::Options& from) {
@@ -600,11 +621,17 @@ void RestoreDefaults(int page) {
         input::ResetBindings();
         return;
     }
+    if (page == kCheatsPage) {
+        CopyCheats(o, game::Options{});
+        Save();
+        return;
+    }
     game::Options keep = o;
     Get() = Settings{};
     o = game::Options{};
     CopyKeyboardValues(o, keep);
     CopyControllerValues(o, keep);
+    CopyCheats(o, keep);
     o.keys = keep.keys;
     Changed(true);
 }
@@ -911,6 +938,10 @@ const rows::Row* rows::Page(int page, size_t* count) {
     if (page == kControllerPage) {
         *count = std::size(kControllerRows);
         return kControllerRows;
+    }
+    if (page == kCheatsPage) {
+        *count = std::size(kCheatRows);
+        return kCheatRows;
     }
     static const std::vector<Row> rows = [] {
         std::vector<Row> out(std::begin(kSettingsRows), std::end(kSettingsRows));
