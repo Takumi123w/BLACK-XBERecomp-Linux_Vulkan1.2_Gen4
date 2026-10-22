@@ -47,6 +47,20 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 ### Miscellaneous
 - **Custom Menu Cursor** - Place a `cursor.png` (or `cursor.dds`) beside the exe to replace the Windows arrow in the game's menus.
 
+## Linux
+The game also runs natively on Linux, drawn with Vulkan through the same renderer features as on Windows. Linux builds from source: the recompiled game code is linked into the executable when it is built, so there is no first-start compile.
+
+- Build with `./build.sh` (see [Building on Linux](#building-on-linux)), then run `out/build/release/black`. The `assets` folder is found beside the executable or in any folder above it.
+- Window, keyboard, mouse, controllers and sound go through SDL3, on Wayland or X11. Saves (`hdd`), logs and `black.toml` are written beside the executable.
+- **HDR Output** is offered when the compositor reports HDR headroom for the window's display and the Vulkan driver takes HDR10 for the window. Set `XBE_HDR_PAPER_NITS` and `XBE_HDR_PEAK_NITS` to override the SDR white level and peak brightness.
+- **Monitor** lists displays by their model name. Wayland does not let a game place its own window, so on Wayland the choice applies to fullscreen and borderless.
+- **Custom Menu Cursor** takes `cursor.png` or `cursor.bmp` on Linux; `cursor.dds` is Windows only.
+- Diagnostics: `XBE_VK_DEBUG` turns on the Vulkan validation layer, and `XBE_SNAPSHOT=N` saves the window's picture to `snapshots` every N seconds. `XBE_PERF` and `XBE_CAPTURE_DIR` work as on Windows.
+
+### Linux Requirements
+- A 64-bit distribution with a Vulkan 1.3 driver supporting `VK_KHR_push_descriptor` (Mesa 23 or newer, NVIDIA 535 or newer)
+- The same CPU and memory as Windows
+
 ## System Requirements
 ### Minimum
 - **OS**
@@ -86,3 +100,9 @@ Install [Visual Studio 2022](https://visualstudio.microsoft.com/downloads/) and 
 ### 4. Build the Project
 - Run `build.bat`. The first build recompiles the entire game and can take 30 to 90 minutes on weaker systems.
 - When it finishes, run `out\build\release\BLACK.exe`.
+
+### Building on Linux
+1. Clone the repository and add the game files to `assets`, as above.
+2. Install Clang, LLD, CMake, Ninja, Git, pkg-config, the Vulkan loader and headers, and shaderc, plus SDL3's build dependencies (X11, Wayland, xkbcommon, PipeWire/PulseAudio/ALSA, udev). `build.sh` lists the packages for Arch, Debian/Ubuntu and Fedora when something is missing.
+3. Run `./build.sh` (`./build.sh debug` for full logs). The first build recompiles the entire game, 15 to 60 minutes on weaker systems.
+4. Run `out/build/release/black`.

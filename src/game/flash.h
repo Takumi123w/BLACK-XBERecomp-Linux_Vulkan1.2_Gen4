@@ -7,6 +7,7 @@
 #include <map>
 #include <string>
 
+#include "core/platform.h"
 #include "xdk/hle.h"
 
 namespace flash {

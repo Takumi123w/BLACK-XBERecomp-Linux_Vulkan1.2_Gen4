@@ -8,7 +8,16 @@
 namespace input {
 
 void StartMouse(void* hwnd);     // window thread, the game window is up
+#ifdef _WIN32
 void OnRawInput(void* handle);   // window thread, WM_INPUT
+#else
+// window thread, SDL's events: motion in window units, wheel notches, the binding of a key's scancode (0 for none)
+void OnMouseMotion(float dx, float dy);
+void OnMouseWheel(float y);
+int KeyOfScancode(int scancode);
+// window thread: the cursor and the pointer hold as the panel, the menus and play want them
+void UpdateCursor();
+#endif
 void ReleaseCursor();            // the game lost the input: the clip goes, held keys wait for release
 void Keyboard(Pad& pad);         // held keys onto port 0's pad
 // raw mouse counts since the last call, scaled by the settings; false when there are none

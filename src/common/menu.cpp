@@ -12,13 +12,13 @@
 #include <utility>
 #include <vector>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
+#ifdef _WIN32
+#include "common/keys.h"
+#else
+#include <SDL3/SDL.h>
+
+#include "common/keys.h"
 #endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
 
 #include <imgui.h>
 
@@ -114,6 +114,28 @@ int StepRange(int value, int lo, int hi, int inc, int step) {
 // the monitor's modes smallest first, so Left steps down; the primary's for empty
 std::vector<Mode> Modes(const std::string& monitor) {
     std::vector<Mode> modes;
+#ifndef _WIN32
+    SDL_DisplayID id = SDL_GetPrimaryDisplay();
+    int count = 0;
+    std::vector<game::Display> list = game::Displays();
+    if (SDL_DisplayID* ids = SDL_GetDisplays(&count)) {
+        for (int i = 0; i < count; i++)
+            for (const game::Display& d : list)
+                if (d.number == i + 1 && d.device == monitor) id = ids[i];
+        SDL_free(ids);
+    }
+    if (SDL_DisplayMode** list_modes = SDL_GetFullscreenDisplayModes(id, &count)) {
+        for (int i = 0; i < count; i++) {
+            const SDL_DisplayMode& dm = *list_modes[i];
+            float scale = dm.pixel_density > 0 ? dm.pixel_density : 1.0f;
+            Mode m{uint32_t(std::lround(dm.w * scale)), uint32_t(std::lround(dm.h * scale))};
+            if (m.width < 640) continue;
+            auto same = [&](const Mode& o) { return o.width == m.width && o.height == m.height; };
+            if (std::none_of(modes.begin(), modes.end(), same)) modes.push_back(m);
+        }
+        SDL_free(list_modes);
+    }
+#else
     std::wstring device(monitor.begin(), monitor.end());
     const wchar_t* name = device.empty() ? nullptr : device.c_str();
     DEVMODEW dm{};
@@ -124,6 +146,7 @@ std::vector<Mode> Modes(const std::string& monitor) {
         auto same = [&](const Mode& o) { return o.width == m.width && o.height == m.height; };
         if (std::none_of(modes.begin(), modes.end(), same)) modes.push_back(m);
     }
+#endif
     std::sort(modes.begin(), modes.end(), [](const Mode& a, const Mode& b) {
         return a.width != b.width ? a.width < b.width : a.height < b.height;
     });
@@ -221,6 +244,10 @@ void Flip(bool& on, int step) {
 
 // applies and saves
 void Changed(bool display) {
+#ifndef _WIN32
+    // Windows moves the window onto the monitor as the host applies; here the host is told where to go first
+    if (display) game::UpdateWindowMonitor(Window());
+#endif
     if (display) ApplyDisplay();
     audio::SetOutputMode(game::Opt().audio_output);
     Save();
@@ -816,6 +843,22 @@ void DrawPanel() {
 // when unreadable
 uint32_t RefreshRate() {
     static uint32_t rate = 0;
+#ifndef _WIN32
+    static std::atomic<uint32_t> cached{0};
+    static std::atomic<uint64_t> next{0};
+    uint64_t now = SDL_GetTicks();
+    if (now < next) return cached;
+    next = now + 1000;
+    // read on the window thread, which owns the display state
+    Post([] {
+        SDL_Window* w = static_cast<SDL_Window*>(Window());
+        SDL_DisplayID d = w ? SDL_GetDisplayForWindow(w) : 0;
+        const SDL_DisplayMode* m = d ? SDL_GetCurrentDisplayMode(d) : nullptr;
+        cached = m && m->refresh_rate > 1 ? uint32_t(std::lround(m->refresh_rate)) : 0;
+    });
+    rate = cached;
+    return rate;
+#else
     static ULONGLONG next = 0;
     ULONGLONG now = GetTickCount64();
     if (now < next) return rate;
@@ -828,6 +871,7 @@ uint32_t RefreshRate() {
     bool read = GetMonitorInfoW(monitor, &mi) && EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &mode);
     rate = read && mode.dmDisplayFrequency > 1 ? mode.dmDisplayFrequency : 0;
     return rate;
+#endif
 }
 
 // as app::Pace, at this cap
@@ -842,7 +886,7 @@ void PaceAt(uint32_t cap) {
     auto period = std::chrono::nanoseconds(1000000000ull / cap);
     next += period;
     if (next < now - period) next = now;
-    while (clock::now() + std::chrono::milliseconds(2) < next) Sleep(1);
+    while (clock::now() + std::chrono::milliseconds(2) < next) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     while (clock::now() < next) std::this_thread::yield();
 }
 

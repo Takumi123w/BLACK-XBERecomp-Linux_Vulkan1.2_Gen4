@@ -6,16 +6,9 @@
 #include <iterator>
 #include <string>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-
 #include "app/app.h"
 #include "core/log.h"
+#include "core/platform.h"
 #include "game/flash.h"
 #include "game/layout.h"
 #include "xdk/hle.h"
@@ -183,7 +176,7 @@ void UpdateConfirm(X86Context& ctx, uint32_t ui, uint32_t root) {
     if (g_quitting) return;
     g_quitting = true;
     LOGI("quit: closing the window");
-    PostMessageW(static_cast<HWND>(app::Window()), WM_CLOSE, 0, 0);
+    app::Quit();
 }
 
 void Tick(X86Context& ctx, uint32_t ui) {

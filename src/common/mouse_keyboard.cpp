@@ -12,24 +12,28 @@
 #include <utility>
 #include <vector>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
+#ifndef _WIN32
+#include <SDL3/SDL.h>
 #endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
 
 #include "app/app.h"
 #include "common/aspect.h"
+#include "common/keys.h"
 #include "common/menu.h"
 #include "common/options.h"
+#include "core/platform.h"
 
 namespace input {
 
 namespace {
 
+#ifdef _WIN32
 HWND g_hwnd = nullptr;
+#else
+SDL_Window* g_window = nullptr;
+std::atomic<float> g_frac_x{0};  // relative motion comes in fractions of a count
+std::atomic<float> g_frac_y{0};
+#endif
 std::atomic<int> g_dx{0};
 std::atomic<int> g_dy{0};
 std::atomic<uint64_t> g_take_ms{0};     // TakeMouse, asked every tick in play
@@ -140,7 +144,7 @@ constexpr int kFixed[] = {VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, VK_RETURN, VK_BACK}
 // US layout scan codes of the keys that move with the layout: a bind names the US key at that position
 struct Position {
     int vk;
-    UINT scan;
+    uint32_t scan;
 };
 constexpr Position kPositions[] = {
     {'1', 0x02}, {'2', 0x03}, {'3', 0x04}, {'4', 0x05}, {'5', 0x06}, {'6', 0x07}, {'7', 0x08}, {'8', 0x09},
@@ -169,12 +173,13 @@ const char* NameOf(int vk) {
     return nullptr;
 }
 
-UINT ScanOf(int vk) {
+uint32_t ScanOf(int vk) {
     for (const Position& p : kPositions)
         if (p.vk == vk) return p.scan;
     return 0;
 }
 
+#ifdef _WIN32
 // the keyboard layout the player types with, switched per window thread
 HKL Layout() { return GetKeyboardLayout(GetWindowThreadProcessId(g_hwnd, nullptr)); }
 
@@ -208,6 +213,60 @@ std::string Label(int vk) {
     if (c > ' ' && c < 0x7F) return std::string(1, char(c));
     return NameOf(vk);
 }
+#else
+// the key at each bindable position, as SDL numbers it (the USB usage, the same on every layout)
+struct Scancode {
+    int vk;
+    SDL_Scancode sc;
+};
+constexpr Scancode kScancodes[] = {
+    {VK_SPACE, SDL_SCANCODE_SPACE}, {VK_RETURN, SDL_SCANCODE_RETURN}, {VK_ESCAPE, SDL_SCANCODE_ESCAPE},
+    {VK_BACK, SDL_SCANCODE_BACKSPACE}, {VK_TAB, SDL_SCANCODE_TAB}, {VK_CAPITAL, SDL_SCANCODE_CAPSLOCK},
+    {VK_UP, SDL_SCANCODE_UP}, {VK_DOWN, SDL_SCANCODE_DOWN}, {VK_LEFT, SDL_SCANCODE_LEFT},
+    {VK_RIGHT, SDL_SCANCODE_RIGHT}, {VK_INSERT, SDL_SCANCODE_INSERT}, {VK_DELETE, SDL_SCANCODE_DELETE},
+    {VK_HOME, SDL_SCANCODE_HOME}, {VK_END, SDL_SCANCODE_END}, {VK_PRIOR, SDL_SCANCODE_PAGEUP},
+    {VK_NEXT, SDL_SCANCODE_PAGEDOWN},
+    {VK_F1, SDL_SCANCODE_F1}, {VK_F2, SDL_SCANCODE_F2}, {VK_F3, SDL_SCANCODE_F3}, {VK_F4, SDL_SCANCODE_F4},
+    {VK_F5, SDL_SCANCODE_F5}, {VK_F6, SDL_SCANCODE_F6}, {VK_F7, SDL_SCANCODE_F7}, {VK_F8, SDL_SCANCODE_F8},
+    {VK_F9, SDL_SCANCODE_F9}, {VK_F10, SDL_SCANCODE_F10}, {VK_F11, SDL_SCANCODE_F11}, {VK_F12, SDL_SCANCODE_F12},
+    {VK_NUMPAD0, SDL_SCANCODE_KP_0}, {VK_NUMPAD1, SDL_SCANCODE_KP_1}, {VK_NUMPAD2, SDL_SCANCODE_KP_2},
+    {VK_NUMPAD3, SDL_SCANCODE_KP_3}, {VK_NUMPAD4, SDL_SCANCODE_KP_4}, {VK_NUMPAD5, SDL_SCANCODE_KP_5},
+    {VK_NUMPAD6, SDL_SCANCODE_KP_6}, {VK_NUMPAD7, SDL_SCANCODE_KP_7}, {VK_NUMPAD8, SDL_SCANCODE_KP_8},
+    {VK_NUMPAD9, SDL_SCANCODE_KP_9}, {VK_ADD, SDL_SCANCODE_KP_PLUS}, {VK_SUBTRACT, SDL_SCANCODE_KP_MINUS},
+    {VK_MULTIPLY, SDL_SCANCODE_KP_MULTIPLY}, {VK_DIVIDE, SDL_SCANCODE_KP_DIVIDE},
+    {VK_DECIMAL, SDL_SCANCODE_KP_PERIOD},
+    {VK_OEM_3, SDL_SCANCODE_GRAVE}, {VK_OEM_MINUS, SDL_SCANCODE_MINUS}, {VK_OEM_PLUS, SDL_SCANCODE_EQUALS},
+    {VK_OEM_4, SDL_SCANCODE_LEFTBRACKET}, {VK_OEM_6, SDL_SCANCODE_RIGHTBRACKET},
+    {VK_OEM_5, SDL_SCANCODE_BACKSLASH}, {VK_OEM_1, SDL_SCANCODE_SEMICOLON}, {VK_OEM_7, SDL_SCANCODE_APOSTROPHE},
+    {VK_OEM_COMMA, SDL_SCANCODE_COMMA}, {VK_OEM_PERIOD, SDL_SCANCODE_PERIOD}, {VK_OEM_2, SDL_SCANCODE_SLASH},
+    {VK_SHIFT, SDL_SCANCODE_LSHIFT}, {VK_SHIFT, SDL_SCANCODE_RSHIFT}, {VK_CONTROL, SDL_SCANCODE_LCTRL},
+    {VK_CONTROL, SDL_SCANCODE_RCTRL}, {VK_MENU, SDL_SCANCODE_LALT}, {VK_MENU, SDL_SCANCODE_RALT},
+};
+
+SDL_Scancode ScancodeOf(int vk) {
+    if (vk >= 'A' && vk <= 'Z') return SDL_Scancode(SDL_SCANCODE_A + (vk - 'A'));
+    if (vk >= '1' && vk <= '9') return SDL_Scancode(SDL_SCANCODE_1 + (vk - '1'));
+    if (vk == '0') return SDL_SCANCODE_0;
+    for (const Scancode& k : kScancodes)
+        if (k.vk == vk) return k.sc;
+    return SDL_SCANCODE_UNKNOWN;
+}
+
+// keys arrive as their positions already
+int PositionVk(int vk) { return vk; }
+
+// the key as the player's keyboard labels it
+std::string Label(int vk) {
+    if (!ScanOf(vk)) return NameOf(vk);
+    SDL_Keycode k = SDL_GetKeyFromScancode(ScancodeOf(vk), SDL_KMOD_NONE, false);
+    if (k >= 'a' && k <= 'z') return std::string(1, char(k - 'a' + 'A'));
+    if (k >= '0' && k <= '9') return std::string(1, char(k));
+    // a comma would split the key list
+    if (k == ',') return NameOf(VK_OEM_COMMA);
+    if (k > ' ' && k < 0x7F) return std::string(1, char(k));
+    return NameOf(vk);
+}
+#endif
 
 std::vector<int> Parse(const std::string& list) {
     std::vector<int> out;
@@ -231,12 +290,33 @@ std::string Join(const std::vector<int>& vks, bool labels = false) {
     return s;
 }
 
+#ifdef _WIN32
 bool Foreground() { return g_hwnd && GetForegroundWindow() == g_hwnd; }
+#else
+bool Foreground() { return g_window && (SDL_GetWindowFlags(g_window) & SDL_WINDOW_INPUT_FOCUS); }
+#endif
 bool Active() { return Foreground() && !app::MenuOpen(); }
 bool Wheel(int vk) { return vk == kWheelUp || vk == kWheelDown; }
 bool Down(int vk) {
     if (Wheel(vk)) return NowMs() - g_wheel_ms[vk == kWheelDown] < kTapMs;
+#ifdef _WIN32
     return GetAsyncKeyState(LiveVk(vk)) < 0;
+#else
+    SDL_MouseButtonFlags buttons = SDL_GetMouseState(nullptr, nullptr);
+    switch (vk) {
+        case VK_LBUTTON: return buttons & SDL_BUTTON_LMASK;
+        case VK_RBUTTON: return buttons & SDL_BUTTON_RMASK;
+        case VK_MBUTTON: return buttons & SDL_BUTTON_MMASK;
+        case VK_XBUTTON1: return buttons & SDL_BUTTON_X1MASK;
+        case VK_XBUTTON2: return buttons & SDL_BUTTON_X2MASK;
+    }
+    const bool* keys = SDL_GetKeyboardState(nullptr);
+    // the modifiers bind either side
+    for (const Scancode& k : kScancodes)
+        if (k.vk == vk && (vk == VK_SHIFT || vk == VK_CONTROL || vk == VK_MENU) && keys[k.sc]) return true;
+    SDL_Scancode sc = ScancodeOf(vk);
+    return sc != SDL_SCANCODE_UNKNOWN && keys[sc];
+#endif
 }
 bool Mouse(int vk) {
     bool button = vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON || vk == VK_XBUTTON1 || vk == VK_XBUTTON2;
@@ -247,6 +327,7 @@ bool Play() { return NowMs() - g_take_ms < kPlayMs; }
 bool GameDown(int vk) { return Down(vk) && !(g_menu && vk == VK_DELETE); }
 bool KeyCaptureUp() { return NowMs() - g_capture_ms <= kCaptureMs; }
 
+#ifdef _WIN32
 void Clip() {
     RECT r;
     RECT cur;
@@ -259,6 +340,12 @@ void Clip() {
 void RefreshCursor() {
     if (g_hwnd) PostMessageW(g_hwnd, WM_SETCURSOR, WPARAM(g_hwnd), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
 }
+#else
+// the cursor follows the game's state on the window thread
+void RefreshCursor() {
+    if (g_window) app::Post(UpdateCursor);
+}
+#endif
 
 // the action is bound to this key and no key capture wants it
 bool HostKeyBound(size_t action, int vk) {
@@ -327,6 +414,7 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
 
 }  // namespace
 
+#ifdef _WIN32
 void StartMouse(void* hwnd) {
     g_hwnd = static_cast<HWND>(hwnd);
     RAWINPUTDEVICE mouse{1, 2, 0, g_hwnd};  // generic desktop page, mouse usage
@@ -363,6 +451,72 @@ void ReleaseCursor() {
     ClipCursor(nullptr);
     g_settle = true;
 }
+#else
+void StartMouse(void* window) { g_window = static_cast<SDL_Window*>(window); }
+
+void OnMouseMotion(float dx, float dy) {
+    UpdateCursor();
+    if (!Active()) return;
+    SetKeyboard(true);
+    // the cursor is free in the game's menus; in play the window holds it and only the motion counts
+    if (!Play()) return;
+    float x = g_frac_x + dx;
+    float y = g_frac_y + dy;
+    g_dx += int(x);
+    g_dy += int(y);
+    g_frac_x = x - float(int(x));
+    g_frac_y = y - float(int(y));
+}
+
+void OnMouseWheel(float y) {
+    int notch = y > 0 ? 1 : y < 0 ? -1 : 0;
+    // noted while the settings panel has the input too, so its key capture sees the wheel
+    if (notch && Foreground()) g_wheel_ms[notch < 0] = NowMs();
+    if (!Active()) return;
+    SetKeyboard(true);
+    // the wheel scrolls the game's menus unless a key capture takes it
+    if (!Play() && !KeyCaptureUp()) g_wheel += notch;
+}
+
+int KeyOfScancode(int scancode) {
+    if (scancode >= SDL_SCANCODE_A && scancode <= SDL_SCANCODE_Z) return 'A' + (scancode - SDL_SCANCODE_A);
+    if (scancode >= SDL_SCANCODE_1 && scancode <= SDL_SCANCODE_9) return '1' + (scancode - SDL_SCANCODE_1);
+    if (scancode == SDL_SCANCODE_0) return '0';
+    for (const Scancode& k : kScancodes)
+        if (k.sc == scancode) return k.vk;
+    return 0;
+}
+
+void UpdateCursor() {
+    static int shown = -1;  // the cursor set last: 0 none, 1 the arrow, 2 the game's
+    static int relative = -1;
+    static SDL_Cursor* arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
+    if (!g_window) return;
+    bool panel = app::MenuOpen();
+    int want = panel ? 1 : CursorShown() ? 2 : 0;
+    // play holds the pointer in the window and reads its motion alone
+    int hold = !panel && Active() && Play() ? 1 : 0;
+    if (hold != relative) {
+        SDL_SetWindowRelativeMouseMode(g_window, hold != 0);
+        relative = hold;
+    }
+    SDL_Cursor* game = want == 2 ? static_cast<SDL_Cursor*>(app::CursorImage()) : nullptr;
+    if (want == 2 && !game) want = 1;
+    if (want == shown && want != 2) return;
+    if (want) {
+        SDL_SetCursor(want == 1 ? arrow : game);
+        SDL_ShowCursor();
+    } else {
+        SDL_HideCursor();
+    }
+    shown = want;
+}
+
+void ReleaseCursor() {
+    g_settle = true;
+    RefreshCursor();
+}
+#endif
 
 bool TakeMouse(float& dx, float& dy) {
     uint64_t now = NowMs();
@@ -425,15 +579,25 @@ bool KeyboardActive() { return g_keyboard; }
 bool CursorShown() { return g_menu && g_keyboard; }
 
 bool Cursor(float& x, float& y, bool& down) {
+    if (!Active() || !CursorShown()) return false;
+#ifdef _WIN32
     POINT p;
     RECT r;
-    if (!Active() || !CursorShown()) return false;
     if (!GetCursorPos(&p) || !ScreenToClient(g_hwnd, &p) || !GetClientRect(g_hwnd, &r)) return false;
     if (r.right <= 0 || r.bottom <= 0) return false;
-    // the frame is shown in the middle of the window
-    float aspect = game::Aspect();
     float w = float(r.right);
     float h = float(r.bottom);
+#else
+    SDL_FPoint p;
+    int iw = 0;
+    int ih = 0;
+    SDL_GetMouseState(&p.x, &p.y);
+    if (!SDL_GetWindowSize(g_window, &iw, &ih) || iw <= 0 || ih <= 0) return false;
+    float w = float(iw);
+    float h = float(ih);
+#endif
+    // the frame is shown in the middle of the window
+    float aspect = game::Aspect();
     float vw = std::min(w, h * aspect);
     float vh = vw / aspect;
     x = (float(p.x) - (w - vw) / 2) / vw;

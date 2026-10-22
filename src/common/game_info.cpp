@@ -2,6 +2,7 @@
 #include <atomic>
 #include <iterator>
 
+#ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -9,11 +10,19 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <clocale>
+#include <cstdlib>
+#include <cstring>
+
+#include <SDL3/SDL.h>
+#endif
 
 #include <toml++/toml.hpp>
 
 #include "app/app.h"
 #include "audio/output.h"
+#include "common/keys.h"
 #include "common/menu.h"
 #include "common/monitor.h"
 #include "common/mouse_keyboard.h"
@@ -24,6 +33,7 @@ namespace game {
 
 namespace {
 
+#ifdef _WIN32
 constexpr uint32_t kHostApplyDisplay = WM_APP + 1;  // main.cpp's kApplyDisplay
 constexpr intptr_t kKeyWasDown = 1 << 30;  // WM_KEYDOWN lParam: a held key's repeat
 
@@ -85,6 +95,64 @@ bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* resu
     }
     return false;
 }
+#else
+// the panel's keys, the mouse and typing; F3 and the display mode stay with the host
+bool Event(const void* event) {
+    const SDL_Event& e = *static_cast<const SDL_Event*>(event);
+    using namespace app;
+    switch (e.type) {
+        case SDL_EVENT_KEY_DOWN: {
+            int vk = input::KeyOfScancode(e.key.scancode);
+            // a name being typed takes Backspace and Enter as characters, as Windows sends them
+            if (e.key.key == SDLK_BACKSPACE) input::OnChar('\b');
+            if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) input::OnChar('\r');
+            if (e.key.repeat || !vk) break;
+            if (input::PanelKey(vk)) {
+                ToggleMenu();
+                input::UpdateCursor();
+                return true;
+            }
+            if (!MenuOpen() && input::HudKey(vk)) {
+                g_hide_hud = !g_hide_hud;
+                return true;
+            }
+            if (vk == VK_ESCAPE && MenuOpen() && !Capturing()) {
+                ToggleMenu();
+                input::UpdateCursor();
+            }
+            break;
+        }
+        case SDL_EVENT_TEXT_INPUT:
+            // UTF-8 to code points; the name entry takes those that fit UTF-16 alone
+            for (const unsigned char* p = reinterpret_cast<const unsigned char*>(e.text.text); *p;) {
+                unsigned c = *p++;
+                int more = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+                c &= more == 3 ? 0x07 : more == 2 ? 0x0F : more == 1 ? 0x1F : 0x7F;
+                for (; more && (*p & 0xC0) == 0x80; more--) c = c << 6 | (*p++ & 0x3F);
+                if (c >= ' ') input::OnChar(c);
+            }
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
+            input::OnMouseMotion(e.motion.xrel, e.motion.yrel);
+            break;
+        case SDL_EVENT_MOUSE_WHEEL:
+            input::OnMouseWheel(e.wheel.y);
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            SetWindowFocus(false);
+            input::ReleaseCursor();
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            SetWindowFocus(true);
+            input::UpdateCursor();
+            break;
+        case SDL_EVENT_WINDOW_MOUSE_ENTER:
+            input::UpdateCursor();
+            break;
+    }
+    return false;
+}
+#endif
 
 // A pad that has not reported yet can read its triggers half pressed (Proton, Steam Deck): fire held.
 // A trigger counts once seen released.
@@ -125,6 +193,7 @@ void Rumble(int port, uint16_t& left, uint16_t& right) {
     right = uint16_t(std::min(right * percent / 100, 0xFFFFu));
 }
 
+#ifdef _WIN32
 // the Windows display language when the game has it, else English
 std::string SystemLanguage() {
     switch (PRIMARYLANGID(GetUserDefaultUILanguage())) {
@@ -135,6 +204,24 @@ std::string SystemLanguage() {
         default: return "int";
     }
 }
+#else
+// the desktop's language (LANGUAGE, LC_ALL, LC_MESSAGES, LANG, as gettext reads them) when the game has it, else
+// English
+std::string SystemLanguage() {
+    const char* lang = nullptr;
+    for (const char* var : {"LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"})
+        if (const char* v = std::getenv(var); v && *v) {
+            lang = v;
+            break;
+        }
+    if (!lang) return "int";
+    if (!std::strncmp(lang, "fr", 2)) return "fra";
+    if (!std::strncmp(lang, "de", 2)) return "deu";
+    if (!std::strncmp(lang, "it", 2)) return "ita";
+    if (!std::strncmp(lang, "es", 2)) return "esp";
+    return "int";
+}
+#endif
 
 // what the options list cannot hold
 void Load(const void* table) {
@@ -157,6 +244,10 @@ void Init() {
     BootLanguage();  // latched before the panel can change the setting
     input::LoadBindings();
     audio::SetOutputMode(Opt().audio_output);
+#ifndef _WIN32
+    // the window opens on the setting's monitor, which Windows moves it to when it is made
+    UpdateWindowMonitor(nullptr);
+#endif
 }
 
 void Save(void* table) {
@@ -224,8 +315,15 @@ const app::GameInfo app::kGame = {
     .init = game::Init,
     .loaded = nullptr,
     .window = input::StartMouse,
+#ifdef _WIN32
     .message = game::Message,
+#else
+    .message = nullptr,
+#endif
     .ui = app::DrawUi,
     .pad = game::Pad,
     .rumble = game::Rumble,
+#ifndef _WIN32
+    .event = game::Event,
+#endif
 };
