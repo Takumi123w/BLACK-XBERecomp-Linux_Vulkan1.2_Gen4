@@ -42,6 +42,8 @@ struct Options {
     bool god_mode = false;  // cheat: no hit takes the player's health
     bool one_hit_kill = false;  // cheat: any hit of the player's bullets kills
     bool infinite_grenades = false;  // cheat: throwing a grenade keeps the count
+    bool esp = false;  // cheat: a line from the bottom of the screen and a box to each living enemy
+    bool aimbot = false;  // cheat: aiming in turns the view to the body of the enemy nearest the crosshair
     bool menu_animations = true;  // off: menu pages and the pause menu change without sliding in and out
     std::map<std::string, std::string> keys;  // action id to key names, absent is the default
 };

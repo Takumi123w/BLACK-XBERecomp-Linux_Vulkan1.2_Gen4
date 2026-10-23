@@ -260,7 +260,7 @@ enum RowId { kDisplayMode, kResolution, kRenderResolution, kMaxFps, kVsync, kFps
              kPauseOnFocusLoss, kFmvScale,
              kControllerHoldAim, kControllerSensitivity, kRumbleIntensity, kMenuAnimations,
              kGyroAiming, kGyroSensitivity, kAimAssist, kInfiniteAmmo, kGodMode, kOneHitKill, kInfiniteGrenades, kBloom,
-             kFog };
+             kFog, kEsp, kAimbot };
 
 using rows::Kind;
 using rows::Row;
@@ -327,6 +327,8 @@ constexpr Row kCheatRows[] = {
     {Kind::Value, kGodMode, "GOD MODE"},
     {Kind::Value, kOneHitKill, "ONE-HIT KILL"},
     {Kind::Value, kInfiniteGrenades, "INFINITE GRENADES"},
+    {Kind::Value, kEsp, "ESP LINES"},
+    {Kind::Value, kAimbot, "AIMBOT"},
 };
 
 // the setting an ON / OFF row flips, nullptr for any other row
@@ -338,6 +340,8 @@ bool* ToggleFlag(Settings& s, int id) {
         case kGodMode: return &o.god_mode;
         case kOneHitKill: return &o.one_hit_kill;
         case kInfiniteGrenades: return &o.infinite_grenades;
+        case kEsp: return &o.esp;
+        case kAimbot: return &o.aimbot;
         case kFpsCounter: return &o.fps_counter;
         case kHdrOutput: return &o.hdr_output;
         case kReloadBlur: return &o.reload_blur;
@@ -596,6 +600,8 @@ void CopyCheats(game::Options& to, const game::Options& from) {
     to.god_mode = from.god_mode;
     to.one_hit_kill = from.one_hit_kill;
     to.infinite_grenades = from.infinite_grenades;
+    to.esp = from.esp;
+    to.aimbot = from.aimbot;
 }
 
 // the MOUSE AND KEYBOARD page's values, its binds aside

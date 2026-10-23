@@ -21,6 +21,10 @@ void ViewScale(float xy);
 void NearDepth(float plane);
 }
 
+namespace game {
+void EspCamera();  // esp.cpp
+}
+
 namespace {
 
 constexpr uint32_t kDevice = SYM(D3D_Device);
@@ -202,6 +206,7 @@ constexpr float kNearPlane = 0.08f;  // every camera's, set once at renderer ini
 X86_EXTERN_FUNC(__imp__sub_00176F60);
 X86_FUNC(sub_00176F60) {
     bool list = ctx.esi == R32(kDisplay) + kDisplayDrawLists + kGunDrawList * kDrawListSize;
+    if (ctx.esi == R32(kDisplay) + kDisplayDrawLists + kAlphaDrawList * kDrawListSize) game::EspCamera();
     bool scale = list && g_gun != 1;
     bool keep_near = list && game::Opt().viewmodel_fov > kGameFov;
     if (scale) d3d::ViewScale(g_gun);

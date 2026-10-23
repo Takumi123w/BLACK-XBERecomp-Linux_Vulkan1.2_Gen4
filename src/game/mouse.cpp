@@ -22,6 +22,10 @@ using flash::Member;
 using flash::Members;
 using flash::Type;
 
+namespace game {
+void Aimbot(X86Context& ctx);  // esp.cpp
+}
+
 // degrees a count at sensitivity 1
 constexpr float kDegrees = 0.05f;
 constexpr float kHalfRadians = 3.14159265f / 360.0f;  // degrees to radians of half the angle
@@ -73,6 +77,7 @@ void UpdateSway(X86Context& ctx, float yaw, float pitch) {
 
 // esi the player's controller. The game adds the stick, clamps the pitch and wraps the yaw after this.
 void MouseLook(X86Context& ctx, uint8_t*) {
+    game::Aimbot(ctx);
     float yaw = 0.0f;
     float pitch = 0.0f;
     float dx;
