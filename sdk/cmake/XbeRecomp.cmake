@@ -172,7 +172,10 @@ function(add_xbe_image target xbe config partitions game_dir)
         target_compile_options(${target} PRIVATE -fno-strict-aliasing)
         target_link_libraries(${target} PRIVATE tomlplusplus::tomlplusplus $<LINK_ONLY:SDL3::SDL3-static> Vulkan::Vulkan
                               ${XBE_SHADERC} Threads::Threads ${CMAKE_DL_LIBS})
-        target_link_options(${target} PRIVATE -fuse-ld=lld)
+        # a release carries shaderc and the glslang and SPIRV-Tools libraries under it in lib/ beside the executable
+        # (release.sh): DT_RPATH, which unlike RUNPATH also finds shaderc's own dependencies there
+        target_link_options(${target} PRIVATE -fuse-ld=lld -Wl,--disable-new-dtags)
+        set_target_properties(${target} PROPERTIES BUILD_RPATH "\$ORIGIN/lib")
         return()
     endif()
 
