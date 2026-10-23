@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -772,6 +773,7 @@ struct DrawTextures {
     float k[4] = {1, 1, 1, 1};  // Extension::Sample's k
     float wide[4] = {};         // host texels per console texel of a target read into a smaller one, 0 otherwise
     bool blur[4] = {};          // wide for a blur between small targets
+    uint32_t gw[4] = {};        // a render target's guest width, 0 for any other texture
 };
 
 // a draw's shaders: what they are made from, their cache keys, the hashes Compile returned and the compiled blobs
@@ -934,6 +936,7 @@ private:
                       Assembled& a);
     void EnsureVertexShader(const State& s, const Assembled& a, DrawShaders& sh);
     bool BindStageTexturesAndTargets(const State& s, DrawTextures& stages);
+    bool GlowComposite(const State& s, const DrawTextures& stages) const;
     ID3D12Resource* BindTexture(const State& s, int stage, DrawTextures& stages);
     ID3D12Resource* BindTargetTexture(const State& s, int stage, const TextureDesc& d, Target& t, bool box,
                                       DrawTextures& stages);
@@ -2172,6 +2175,7 @@ ID3D12Resource* D3D12Backend::BindTargetTexture(const State& s, int stage, const
     if (&t == draw_ds_) return nullptr;
     bool feedback = &t == draw_rt_;
     stages.rt[stage] = true;
+    stages.gw[stage] = t.depth ? 0 : t.gw;
     info.flags |= kTexTarget;
     if (!t.depth && LatchCpuWrite(t)) {
         Surface su;
@@ -2366,6 +2370,7 @@ ID3D12Resource* D3D12Backend::BindTexture(const State& s, int stage, DrawTexture
     info = {};
     sv = {};
     stages.rt[stage] = false;
+    stages.gw[stage] = 0;
     stages.k[stage] = 1;
     stages.wide[stage] = 0;
     sv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -2514,6 +2519,26 @@ bool D3D12Backend::BindStageTexturesAndTargets(const State& s, DrawTextures& sta
     return true;
 }
 
+// the glow's last step: a render target at most half the frame's width added (blend ONE onto the frame) over a
+// full size target. BLOOM off skips it, the glow passes before it then go unseen. A composite done any other way
+// (one pass mixing both, alpha blended) is left alone, so the frame never goes black for it
+bool D3D12Backend::GlowComposite(const State& s, const DrawTextures& stages) const {
+    constexpr uint32_t kBlendOne = 1;
+    if (!draw_rt_ || draw_rt_->gw < guest_w_ || !SimpleState(s, kMBlendEnable) || SimpleState(s, kMDestBlend) != kBlendOne)
+        return false;
+    for (int i = 0; i < 4; i++) {
+        if (!stages.gw[i] || stages.gw[i] * 2 > draw_rt_->gw) continue;
+        // each kind once in the log, to tell what it took
+        static std::set<uint64_t> seen;
+        uint64_t kind = uint64_t(stages.gw[i]) << 32 | SimpleState(s, kMSrcBlend) << 16 | draw_rt_->gw;
+        if (seen.size() < 16 && seen.insert(kind).second)
+            LOGR("d3d12: bloom off skips %u wide onto %u wide, src blend %u", stages.gw[i], draw_rt_->gw,
+                 SimpleState(s, kMSrcBlend));
+        return true;
+    }
+    return false;
+}
+
 constexpr uint64_t kPixelKeySalt = 0x9E3779B97F4A7C15ull;
 constexpr uint64_t kNearDepthSalt = 0xC2B2AE3D27D4EB4Full;
 
@@ -2653,8 +2678,9 @@ void D3D12Backend::BuildPipelineKey(const State& s, const Assembled& a, uint64_t
 // alpha test off: compare always, in Cmp() minus 1 terms like the enabled test
 constexpr float kAlphaTestAlways = float(D3D12_COMPARISON_FUNC_ALWAYS - 1);
 
+// FOG off leaves the constants as fog disabled: the shaders' fog factor is then 1, the colour as drawn
 void FillFogConstants(const State& s, DrawConstants& c) {
-    if (!s.rs[kRsFogEnable]) return;
+    if (!s.rs[kRsFogEnable] || !game::Opt().fog) return;
     c.fog[0] = Bits(s.rs[kRsFogStart]);
     c.fog[1] = Bits(s.rs[kRsFogEnd]);
     c.fog[2] = Bits(s.rs[kRsFogDensity]);
@@ -3064,6 +3090,7 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
     // stage textures, then the pixel shader made for them
     DrawTextures stages;
     if (!BindStageTexturesAndTargets(s, stages)) return;
+    if (!game::Opt().bloom && GlowComposite(s, stages)) return;
     PixelKey pk = MakePixelKey(s, stages.info);
     sh.near_depth = NearDepth(s);
     sh.pkey = Hash(&pk, sizeof(pk)) ^ (sh.near_depth ? kNearDepthSalt : 0);

@@ -259,7 +259,8 @@ enum RowId { kDisplayMode, kResolution, kRenderResolution, kMaxFps, kVsync, kFps
              kAmbientOcclusion, kAudioOutput, kHdrOutput, kMonitor, kLanguage, kSmaa,
              kPauseOnFocusLoss, kFmvScale,
              kControllerHoldAim, kControllerSensitivity, kRumbleIntensity, kMenuAnimations,
-             kGyroAiming, kGyroSensitivity, kAimAssist, kInfiniteAmmo, kGodMode, kOneHitKill, kInfiniteGrenades };
+             kGyroAiming, kGyroSensitivity, kAimAssist, kInfiniteAmmo, kGodMode, kOneHitKill, kInfiniteGrenades, kBloom,
+             kFog };
 
 using rows::Kind;
 using rows::Row;
@@ -284,6 +285,8 @@ constexpr Row kSettingsRows[] = {
     {Kind::Value, kDrawDistance, "DRAW DISTANCE"},
     {Kind::Value, kAmbientOcclusion, "AMBIENT OCCLUSION"},
     {Kind::Value, kReloadBlur, "RELOAD BLUR"},
+    {Kind::Value, kBloom, "BLOOM"},
+    {Kind::Value, kFog, "FOG"},
     {Kind::Heading, -1, "GENERAL"},
     {Kind::Value, kSkipIntros, "SKIP INTROS"},
     {Kind::Value, kMenuAnimations, "MENU ANIMATIONS"},
@@ -338,6 +341,8 @@ bool* ToggleFlag(Settings& s, int id) {
         case kFpsCounter: return &o.fps_counter;
         case kHdrOutput: return &o.hdr_output;
         case kReloadBlur: return &o.reload_blur;
+        case kBloom: return &o.bloom;
+        case kFog: return &o.fog;
         case kSmaa: return &o.smaa;
         case kSkipIntros: return &o.skip_intros;
         case kMenuAnimations: return &o.menu_animations;

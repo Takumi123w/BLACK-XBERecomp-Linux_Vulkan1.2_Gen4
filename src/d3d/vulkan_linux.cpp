@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -784,6 +785,7 @@ struct DrawTextures {
     float k[4] = {1, 1, 1, 1};  // texels per render scale texel, 1 without an extension
     float wide[4] = {};         // host texels per console texel of a target read into a smaller one, 0 otherwise
     bool blur[4] = {};          // wide for a blur between small targets
+    uint32_t gw[4] = {};        // a render target's guest width, 0 for any other texture
 };
 
 // a draw's shaders: what they are made from, their cache keys, the hashes Compile returned and the modules
@@ -954,6 +956,7 @@ private:
                       Assembled& a);
     void EnsureVertexShader(const State& s, const Assembled& a, DrawShaders& sh);
     bool BindStageTexturesAndTargets(const State& s, DrawTextures& stages);
+    bool GlowComposite(const State& s, const DrawTextures& stages) const;
     Image* BindTexture(const State& s, int stage, DrawTextures& stages);
     Image* BindTargetTexture(const State& s, int stage, const TextureDesc& d, Target& t, bool box,
                              DrawTextures& stages);
@@ -2502,6 +2505,7 @@ Image* VulkanBackend::BindTargetTexture(const State& s, int stage, const Texture
     if (&t == draw_ds_) return nullptr;
     bool feedback = &t == draw_rt_;
     stages.rt[stage] = true;
+    stages.gw[stage] = t.depth ? 0 : t.gw;
     info.flags |= kTexTarget;
     if (!t.depth && LatchCpuWrite(t)) {
         Surface su;
@@ -2661,6 +2665,7 @@ Image* VulkanBackend::BindTexture(const State& s, int stage, DrawTextures& stage
     TexInfo& info = stages.info[stage];
     info = {};
     stages.rt[stage] = false;
+    stages.gw[stage] = 0;
     stages.k[stage] = 1;
     stages.wide[stage] = 0;
     stages.levels[stage] = 1;
@@ -2808,6 +2813,26 @@ bool VulkanBackend::BindStageTexturesAndTargets(const State& s, DrawTextures& st
     return true;
 }
 
+// the glow's last step: a render target at most half the frame's width added (blend ONE onto the frame) over a
+// full size target. BLOOM off skips it, the glow passes before it then go unseen. A composite done any other way
+// (one pass mixing both, alpha blended) is left alone, so the frame never goes black for it
+bool VulkanBackend::GlowComposite(const State& s, const DrawTextures& stages) const {
+    constexpr uint32_t kBlendOne = 1;
+    if (!draw_rt_ || draw_rt_->gw < guest_w_ || !SimpleState(s, kMBlendEnable) || SimpleState(s, kMDestBlend) != kBlendOne)
+        return false;
+    for (int i = 0; i < 4; i++) {
+        if (!stages.gw[i] || stages.gw[i] * 2 > draw_rt_->gw) continue;
+        // each kind once in the log, to tell what it took
+        static std::set<uint64_t> seen;
+        uint64_t kind = uint64_t(stages.gw[i]) << 32 | SimpleState(s, kMSrcBlend) << 16 | draw_rt_->gw;
+        if (seen.size() < 16 && seen.insert(kind).second)
+            LOGR("vulkan: bloom off skips %u wide onto %u wide, src blend %u", stages.gw[i], draw_rt_->gw,
+                 SimpleState(s, kMSrcBlend));
+        return true;
+    }
+    return false;
+}
+
 constexpr uint64_t kPixelKeySalt = 0x9E3779B97F4A7C15ull;
 constexpr uint64_t kNearDepthSalt = 0xC2B2AE3D27D4EB4Full;
 
@@ -2950,8 +2975,9 @@ void VulkanBackend::BuildPipelineKey(const State& s, const Assembled& a, uint64_
 // alpha test off: compare always, in Cmp() minus 1 terms like the enabled test
 constexpr float kAlphaTestAlways = 7;
 
+// FOG off leaves the constants as fog disabled: the shaders' fog factor is then 1, the colour as drawn
 void FillFogConstants(const State& s, DrawConstants& c) {
-    if (!s.rs[kRsFogEnable]) return;
+    if (!s.rs[kRsFogEnable] || !game::Opt().fog) return;
     c.fog[0] = Bits(s.rs[kRsFogStart]);
     c.fog[1] = Bits(s.rs[kRsFogEnd]);
     c.fog[2] = Bits(s.rs[kRsFogDensity]);
@@ -3337,6 +3363,7 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     // stage textures, then the pixel shader made for them
     DrawTextures stages;
     if (!BindStageTexturesAndTargets(s, stages)) return;
+    if (!game::Opt().bloom && GlowComposite(s, stages)) return;
     PixelKey pk = MakePixelKey(s, stages.info);
     sh.near_depth = NearDepth(s);
     sh.pkey = Hash(&pk, sizeof(pk)) ^ (sh.near_depth ? kNearDepthSalt : 0);

@@ -17,6 +17,8 @@ struct Options {
     uint32_t fmv_scale = 0;  // 4:3 films on a wider screen: 0 fill it, top and bottom cut; 1 kept 4:3
     bool hdr_output = true;  // HDR10 on a display with Windows HDR on
     bool reload_blur = true;
+    bool bloom = true;  // the glow added over bright parts of the frame (d3d/vulkan_linux.cpp, d3d/d3d12.cpp)
+    bool fog = true;
     uint32_t ambient_occlusion = 0;  // screen space, from the scene's depth: 0 off, 1 SSAO, 2 GTAO
     uint32_t msaa = 0;  // samples a pixel of the scene, 0 off
     uint32_t draw_distance = 1;  // times the game's LOD and draw distances

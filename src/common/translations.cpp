@@ -45,6 +45,8 @@ constexpr Entry kEntries[] = {
     {"DRAW DISTANCE", {u"Distance d'affichage", u"Sichtweite", u"Distanza visiva", u"Distancia de dibujado"}},
     {"AMBIENT OCCLUSION", {u"Occlusion ambiante", u"Ambient Occlusion", u"Occlusione ambientale", u"Oclusión ambiental"}},
     {"RELOAD BLUR", {u"Flou au rechargement", u"Nachlade-Unschärfe", u"Sfocatura in ricarica", u"Desenfoque al recargar"}},
+    {"BLOOM", {u"Flou lumineux", u"Bloom", u"Bloom", u"Resplandor"}},
+    {"FOG", {u"Brouillard", u"Nebel", u"Nebbia", u"Niebla"}},
     {"SKIP INTROS", {u"Passer les intros", u"Intros überspringen", u"Salta introduzione", u"Saltar introducción"}},
     {"MENU ANIMATIONS", {u"Animations des menus", u"Menüanimationen", u"Animazioni dei menu", u"Animaciones de los menús"}},
     {"PAUSE ON FOCUS LOSS", {u"Pause en arrière-plan", u"Pause im Hintergrund", u"Pausa in background", u"Pausa en segundo plano"}},
