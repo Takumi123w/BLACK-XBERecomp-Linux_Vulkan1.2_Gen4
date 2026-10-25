@@ -58,7 +58,7 @@ The game also runs natively on Linux, drawn with Vulkan through the same rendere
 - Diagnostics: `XBE_VK_DEBUG` turns on the Vulkan validation layer, and `XBE_SNAPSHOT=N` saves the window's picture to `snapshots` every N seconds. `XBE_PERF` and `XBE_CAPTURE_DIR` work as on Windows.
 
 ### Linux Requirements
-- A 64-bit distribution with a Vulkan 1.3 driver supporting `VK_KHR_push_descriptor` (Mesa 23 or newer, NVIDIA 535 or newer)
+- A 64-bit distribution with a Vulkan 1.2 driver
 - The same CPU and memory as Windows
 
 ## System Requirements
