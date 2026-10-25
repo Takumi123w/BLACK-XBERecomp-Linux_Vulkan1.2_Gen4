@@ -52,6 +52,16 @@ namespace gpu {
 namespace {
 
 constexpr int kFrames = 3;
+static PFN_vkCmdBeginRenderingKHR g_vkCmdBeginRendering;
+static PFN_vkCmdEndRenderingKHR g_vkCmdEndRendering;
+static PFN_vkCmdPipelineBarrier2KHR g_vkCmdPipelineBarrier2;
+static PFN_vkCmdSetPrimitiveTopologyEXT g_vkCmdSetPrimitiveTopology;
+static PFN_vkCmdBindVertexBuffers2EXT g_vkCmdBindVertexBuffers2;
+#define vkCmdBeginRendering g_vkCmdBeginRendering
+#define vkCmdEndRendering g_vkCmdEndRendering
+#define vkCmdPipelineBarrier2 g_vkCmdPipelineBarrier2
+#define vkCmdSetPrimitiveTopology g_vkCmdSetPrimitiveTopology
+#define vkCmdBindVertexBuffers2 g_vkCmdBindVertexBuffers2
 constexpr uint64_t kUploadSize = 64ull << 20;
 constexpr VkFormat kBgra = VK_FORMAT_B8G8R8A8_UNORM;
 // HDR10 output: back buffers in PQ over BT.2020; SDR white and peak in nits, XBE_HDR_PAPER_NITS and
@@ -1234,7 +1244,7 @@ bool VulkanBackend::CreateInstance() {
     std::string name = app::Utf8(app::kGame.title);
     ai.pApplicationName = name.c_str();
     ai.pEngineName = "XboxXBE-Recomp";
-    ai.apiVersion = VK_API_VERSION_1_3;
+    ai.apiVersion = VK_API_VERSION_1_2;
     VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ci.pApplicationInfo = &ai;
     ci.enabledExtensionCount = uint32_t(ext.size());
@@ -1248,7 +1258,7 @@ bool VulkanBackend::CreateInstance() {
         r = vkCreateInstance(&ci, nullptr, &instance_);
     }
     if (r != VK_SUCCESS) {
-        LOGE("vulkan: no instance (%d), a Vulkan 1.3 driver is needed", int(r));
+        LOGE("vulkan: no instance (%d), a Vulkan 1.2 driver is needed", int(r));
         return false;
     }
     return true;
@@ -1264,7 +1274,7 @@ bool VulkanBackend::PickDevice() {
     for (VkPhysicalDevice pd : list) {
         VkPhysicalDeviceProperties p;
         vkGetPhysicalDeviceProperties(pd, &p);
-        if (p.apiVersion < VK_API_VERSION_1_3) continue;
+        if (p.apiVersion < VK_API_VERSION_1_2) continue;
         uint32_t en = 0;
         vkEnumerateDeviceExtensionProperties(pd, nullptr, &en, nullptr);
         std::vector<VkExtensionProperties> ext(en);
@@ -1272,7 +1282,7 @@ bool VulkanBackend::PickDevice() {
         auto has = [&](const char* name) {
             return std::any_of(ext.begin(), ext.end(), [&](auto& e) { return !std::strcmp(e.extensionName, name); });
         };
-        if (!has(VK_KHR_SWAPCHAIN_EXTENSION_NAME) || !has(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)) continue;
+        if (!has(VK_KHR_SWAPCHAIN_EXTENSION_NAME) || !has(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME) || !has(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) || !has(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) || !has(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME)) continue;
         uint32_t qn = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(pd, &qn, nullptr);
         std::vector<VkQueueFamilyProperties> qs(qn);
@@ -1281,7 +1291,7 @@ bool VulkanBackend::PickDevice() {
             VkBool32 present = VK_FALSE;
             vkGetPhysicalDeviceSurfaceSupportKHR(pd, q, surface_, &present);
             if (!(qs[q].queueFlags & VK_QUEUE_GRAPHICS_BIT) || !present) continue;
-            int score = p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2 : 1;
+            int score = p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 3 : p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 2 : 1;
             if (score > best) {
                 best = score;
                 phys_ = pd;
@@ -1295,7 +1305,7 @@ bool VulkanBackend::PickDevice() {
         }
     }
     if (!phys_) {
-        LOGE("vulkan: no GPU with Vulkan 1.3, push descriptors and a queue that presents to the window");
+        LOGE("vulkan: no GPU with Vulkan 1.2 + dynamic rendering, sync2, push descriptors and a queue that presents to the window");
         return false;
     }
     LOGR("GPU: %s (Vulkan %u.%u.%u, driver %08X)", props_.deviceName, VK_API_VERSION_MAJOR(props_.apiVersion),
@@ -1324,18 +1334,23 @@ bool VulkanBackend::CreateDevice() {
     max_aniso_ = have.samplerAnisotropy ? props_.limits.maxSamplerAnisotropy : 1.0f;
     VkPhysicalDeviceVulkan12Features v12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     v12.timelineSemaphore = VK_TRUE;
-    VkPhysicalDeviceVulkan13Features v13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-    v13.dynamicRendering = VK_TRUE;
-    v13.synchronization2 = VK_TRUE;
+    VkPhysicalDeviceDynamicRenderingFeaturesKHR dr{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR};
+    VkPhysicalDeviceSynchronization2FeaturesKHR s2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR};
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT eds{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT};
+    dr.dynamicRendering = VK_TRUE;
+    s2.synchronization2 = VK_TRUE;
+    eds.extendedDynamicState = VK_TRUE;
     VkPhysicalDeviceCustomBorderColorFeaturesEXT border{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT};
     border.customBorderColors = VK_TRUE;
     border.customBorderColorWithoutFormat = VK_TRUE;
     VkPhysicalDeviceMaintenance5FeaturesKHR m5{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR};
     m5.maintenance5 = VK_TRUE;
     f2.pNext = &v12;
-    v12.pNext = &v13;
-    void** tail = &v13.pNext;
-    std::vector<const char*> ext = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    v12.pNext = &dr;
+    dr.pNext = &s2;
+    s2.pNext = &eds;
+    void** tail = &eds.pNext;
+    std::vector<const char*> ext = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME};
     if (hdr_ext_) ext.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
     if (custom_border_) {
         VkPhysicalDeviceCustomBorderColorFeaturesEXT q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT};
@@ -1371,13 +1386,18 @@ bool VulkanBackend::CreateDevice() {
         return false;
     }
     vkGetDeviceQueue(dev_, family_, 0, &queue_);
+    g_vkCmdBeginRendering = (PFN_vkCmdBeginRenderingKHR)vkGetDeviceProcAddr(dev_, "vkCmdBeginRenderingKHR");
+    g_vkCmdEndRendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(dev_, "vkCmdEndRenderingKHR");
+    g_vkCmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(dev_, "vkCmdPipelineBarrier2KHR");
+    g_vkCmdSetPrimitiveTopology = (PFN_vkCmdSetPrimitiveTopologyEXT)vkGetDeviceProcAddr(dev_, "vkCmdSetPrimitiveTopologyEXT");
+    g_vkCmdBindVertexBuffers2 = (PFN_vkCmdBindVertexBuffers2EXT)vkGetDeviceProcAddr(dev_, "vkCmdBindVertexBuffers2EXT");
     push_descriptors_ =
         reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(vkGetDeviceProcAddr(dev_, "vkCmdPushDescriptorSetKHR"));
     VmaAllocatorCreateInfo ac{};
     ac.physicalDevice = phys_;
     ac.device = dev_;
     ac.instance = instance_;
-    ac.vulkanApiVersion = VK_API_VERSION_1_3;
+    ac.vulkanApiVersion = VK_API_VERSION_1_2;
     if (vmaCreateAllocator(&ac, &vma_) != VK_SUCCESS) {
         LOGE("vulkan: no allocator");
         return false;
